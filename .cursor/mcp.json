@@ -2,7 +2,7 @@
   "mcpServers": {
     "crud-mcp-tools": {
       "command": "node",
-      "args": ["index.js"],
+      "args": ["stdio.js"],
       "cwd": "d:\\MCP_SERVER"
     }
   }
