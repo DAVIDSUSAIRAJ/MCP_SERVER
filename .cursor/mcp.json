@@ -1,6 +1,11 @@
 {
   "mcpServers": {
     "crud-mcp-tools": {
+      "command": "node",
+      "args": ["stdio.js"],
+      "cwd": "d:\\MCP_SERVER"
+    },
+    "crud-mcp-tools-remote": {
       "url": "https://mcp-server-mv7m.onrender.com/sse"
     }
   }
