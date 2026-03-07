@@ -6,7 +6,6 @@ import { z } from "zod";
 
 const app = express();
 app.use(cors());
-app.use(express.json());
 
 // Active SSE transports keyed by sessionId
 const transports = {};
