@@ -6,7 +6,6 @@ import { z } from "zod";
 
 const app = express();
 app.use(cors());
-app.use(express.json());
 
 // Active SSE transports keyed by sessionId
 const transports = {};
@@ -178,7 +177,7 @@ app.get("/sse", async (req, res) => {
 });
 
 // Message endpoint — client sends JSON-RPC messages here
-app.post("/messages", async (req, res) => {
+app.post("/messages", express.json(), async (req, res) => {
   const sessionId = req.query.sessionId;
   const transport = transports[sessionId];
 
