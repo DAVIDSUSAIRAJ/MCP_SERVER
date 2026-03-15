@@ -2,12 +2,23 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
 
+const CRUD_API_URL = "https://feedback-1b4u.onrender.com/CRUD/cruds/bulk";
+
+// Simple cache to reduce API calls
+let cache = {
+  data: null,
+  timestamp: null,
+  TTL: 5 * 60 * 1000, // 5 minutes
+};
+
+function isCacheValid() {
+  return cache.data && Date.now() - cache.timestamp < cache.TTL;
+}
+
 const server = new McpServer(
   { name: "crud-mcp-tools", version: "1.0.0" },
   { capabilities: { tools: {} } }
 );
-
-const CRUD_API_URL = "https://feedback-1b4u.onrender.com/CRUD/cruds/bulk";
 
 server.tool(
   "fetch_cruds_bulk",
@@ -23,28 +34,45 @@ server.tool(
   },
   async ({ limit }) => {
     try {
-      const res = await fetch(CRUD_API_URL, { method: "GET" });
-      if (!res.ok) {
-        const text = await res.text().catch(() => "");
-        return {
-          content: [
-            {
-              type: "text",
-              text: `Fetch failed: ${res.status} ${res.statusText}\n${text}`,
-            },
-          ],
-        };
+      let data;
+
+      // Use cache if valid
+      if (isCacheValid()) {
+        data = cache.data;
+      } else {
+        // Fetch fresh data with timeout
+        const res = await fetch(CRUD_API_URL, {
+          method: "GET",
+          signal: AbortSignal.timeout(10000),
+        });
+
+        if (!res.ok) {
+          const text = await res.text().catch(() => "");
+          return {
+            isError: true,
+            content: [
+              {
+                type: "text",
+                text: `Fetch failed: ${res.status} ${res.statusText}\n${text}`,
+              },
+            ],
+          };
+        }
+
+        data = await res.json();
+        // Update cache
+        cache.data = data;
+        cache.timestamp = Date.now();
       }
 
-      const data = await res.json();
-      const sliced =
-        Array.isArray(data) && limit ? data.slice(0, limit) : data;
+      const sliced = Array.isArray(data) && limit ? data.slice(0, limit) : data;
 
       return {
         content: [{ type: "text", text: JSON.stringify(sliced, null, 2) }],
       };
     } catch (err) {
       return {
+        isError: true,
         content: [{ type: "text", text: `Error: ${err.message}` }],
       };
     }
@@ -72,11 +100,13 @@ server.tool(
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(records),
+        signal: AbortSignal.timeout(10000),
       });
 
       if (!res.ok) {
         const text = await res.text().catch(() => "");
         return {
+          isError: true,
           content: [
             {
               type: "text",
@@ -87,6 +117,10 @@ server.tool(
       }
 
       const data = await res.json();
+      // Invalidate cache after successful POST
+      cache.data = null;
+      cache.timestamp = null;
+
       return {
         content: [
           {
@@ -97,6 +131,7 @@ server.tool(
       };
     } catch (err) {
       return {
+        isError: true,
         content: [{ type: "text", text: `Error: ${err.message}` }],
       };
     }

@@ -6,11 +6,23 @@ import { z } from "zod";
 
 const app = express();
 app.use(cors());
+app.use(express.json());
 
 // Active SSE transports keyed by sessionId
 const transports = {};
 
 const CRUD_API_URL = "https://feedback-1b4u.onrender.com/CRUD/cruds/bulk";
+
+// Simple cache to reduce API calls
+let cache = {
+  data: null,
+  timestamp: null,
+  TTL: 5 * 60 * 1000, // 5 minutes
+};
+
+function isCacheValid() {
+  return cache.data && Date.now() - cache.timestamp < cache.TTL;
+}
 
 function registerTools(server) {
   server.tool(
@@ -27,20 +39,37 @@ function registerTools(server) {
     },
     async ({ limit }) => {
       try {
-        const res = await fetch(CRUD_API_URL, { method: "GET" });
-        if (!res.ok) {
-          const text = await res.text().catch(() => "");
-          return {
-            content: [
-              {
-                type: "text",
-                text: `Fetch failed: ${res.status} ${res.statusText}\n${text}`,
-              },
-            ],
-          };
+        let data;
+
+        // Use cache if valid
+        if (isCacheValid()) {
+          data = cache.data;
+        } else {
+          // Fetch fresh data with timeout
+          const res = await fetch(CRUD_API_URL, {
+            method: "GET",
+            signal: AbortSignal.timeout(10000),
+          });
+
+          if (!res.ok) {
+            const text = await res.text().catch(() => "");
+            return {
+              isError: true,
+              content: [
+                {
+                  type: "text",
+                  text: `Fetch failed: ${res.status} ${res.statusText}\n${text}`,
+                },
+              ],
+            };
+          }
+
+          data = await res.json();
+          // Update cache
+          cache.data = data;
+          cache.timestamp = Date.now();
         }
 
-        const data = await res.json();
         const sliced =
           Array.isArray(data) && limit ? data.slice(0, limit) : data;
 
@@ -49,6 +78,7 @@ function registerTools(server) {
         };
       } catch (err) {
         return {
+          isError: true,
           content: [{ type: "text", text: `Error: ${err.message}` }],
         };
       }
@@ -76,11 +106,13 @@ function registerTools(server) {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(records),
+          signal: AbortSignal.timeout(10000),
         });
 
         if (!res.ok) {
           const text = await res.text().catch(() => "");
           return {
+            isError: true,
             content: [
               {
                 type: "text",
@@ -91,6 +123,10 @@ function registerTools(server) {
         }
 
         const data = await res.json();
+        // Invalidate cache after successful POST
+        cache.data = null;
+        cache.timestamp = null;
+
         return {
           content: [
             {
@@ -101,6 +137,7 @@ function registerTools(server) {
         };
       } catch (err) {
         return {
+          isError: true,
           content: [{ type: "text", text: `Error: ${err.message}` }],
         };
       }
